@@ -1,40 +1,19 @@
-"""Claude-powered analysis functions.
+"""Qwen Cloud-powered analysis functions.
 
-Each function sends one structured request to the Claude API and returns a
-validated Python dict. JSON output is enforced with structured outputs
-(output_config.format), so responses always parse.
+Each function sends one structured request to the Qwen API and returns a
+validated Python dict. JSON output is enforced with response_format,
+so responses always parse. A repair fallback handles malformed JSON.
 """
 import hashlib
 import json
 import re
 import time
 
-import anthropic
-
 from app.core.config import get_settings
+from app.ai.providers.qwen import QwenProvider, QwenError, get_qwen_provider
 from . import prompts
 
-settings = get_settings()
-_client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
-
 MAX_INPUT_CHARS = 60_000  # generous cap for a single CV / job description
-_MAX_RETRIES = 3
-_RETRY_BASE_DELAY = 1.0
-
-# ---------------------------------------------------------------------------
-# Tiered model selection
-# ---------------------------------------------------------------------------
-_MODEL_FAST_DEFAULT = "claude-sonnet-4-20250514"
-_MODEL_QUALITY_DEFAULT = "claude-opus-4-8"
-
-
-def get_model(tier: str = "quality") -> str:
-    """Return the model name for the requested tier: 'fast' or 'quality'."""
-    s = get_settings()
-    if tier == "fast":
-        return s.ai_model_fast or _MODEL_FAST_DEFAULT
-    return s.ai_model_quality or _MODEL_QUALITY_DEFAULT
-
 
 # ---------------------------------------------------------------------------
 # In-memory AI response cache
@@ -53,10 +32,14 @@ def _cached_json_request(
     max_tokens: int = 4096,
     tier: str = "quality",
 ) -> dict:
+    settings = get_settings()
+    provider = get_qwen_provider()
+    model = provider._get_model(tier)
+
     key = _cache_key(prompt=prompt, schema_str=json.dumps(schema, sort_keys=True),
-                     model=get_model(tier), tier=tier)
+                     model=model, tier=tier)
     now = time.time()
-    ttl = get_settings().ai_cache_ttl_seconds
+    ttl = settings.ai_cache_ttl_seconds
 
     if ttl > 0 and key in _cache:
         expiry, cached = _cache[key]
@@ -99,59 +82,33 @@ def _string_array() -> dict:
     return {"type": "array", "items": {"type": "string"}}
 
 
-def _create_message(*, model: str | None = None, **kwargs):
-    last_exc = None
-    resolved = model or settings.ai_model
-    for attempt in range(_MAX_RETRIES):
-        try:
-            return _client.messages.create(model=resolved, **kwargs)
-        except (TypeError, anthropic.AuthenticationError):
-            # The SDK raises TypeError when no credentials are configured at all.
-            raise AIServiceError("Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY.")
-        except anthropic.RateLimitError as exc:
-            last_exc = exc
-            if attempt < _MAX_RETRIES - 1:
-                time.sleep(_RETRY_BASE_DELAY * (2 ** attempt))
-                continue
-        except anthropic.APIStatusError as exc:
-            # Retry on server errors (5xx), fail fast on client errors (4xx).
-            if exc.status_code >= 500 and attempt < _MAX_RETRIES - 1:
-                last_exc = exc
-                time.sleep(_RETRY_BASE_DELAY * (2 ** attempt))
-                continue
-            raise AIServiceError(f"AI request failed: {exc}")
-        except anthropic.APIError as exc:
-            raise AIServiceError(f"AI request failed: {exc}")
-    raise AIServiceError(f"AI request failed after {_MAX_RETRIES} retries: {last_exc}")
-
-
 def _json_request(prompt: str, schema: dict, max_tokens: int = 4096, tier: str = "quality") -> dict:
-    response = _create_message(
-        max_tokens=max_tokens,
-        model=get_model(tier),
-        system=prompts.FAIRNESS_CHARTER,
-        messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": schema}},
-    )
-    if response.stop_reason == "refusal":
-        raise AIServiceError("The AI declined to process this request.")
-    text = next((b.text for b in response.content if b.type == "text"), "")
+    """Send a request to Qwen expecting structured JSON output."""
+    provider = get_qwen_provider()
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        raise AIServiceError("AI returned malformed output. Please retry.")
+        return provider.json_request(
+            system=prompts.FAIRNESS_CHARTER,
+            user=prompt,
+            schema=schema,
+            tier=tier,
+            max_tokens=max_tokens,
+        )
+    except QwenError as exc:
+        raise AIServiceError(str(exc))
 
 
 def _text_request(prompt: str, max_tokens: int = 1500, tier: str = "quality") -> str:
-    response = _create_message(
-        max_tokens=max_tokens,
-        model=get_model(tier),
-        system=prompts.FAIRNESS_CHARTER,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    if response.stop_reason == "refusal":
-        raise AIServiceError("The AI declined to process this request.")
-    return next((b.text for b in response.content if b.type == "text"), "")
+    """Send a request to Qwen expecting plain text output."""
+    provider = get_qwen_provider()
+    try:
+        return provider.text_request(
+            system=prompts.FAIRNESS_CHARTER,
+            user=prompt,
+            tier=tier,
+            max_tokens=max_tokens,
+        )
+    except QwenError as exc:
+        raise AIServiceError(str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +352,8 @@ def conduct_interview_turn(
         questions_json=json.dumps(questions, indent=2) if questions else "(none prepared — derive questions from the job and CV)",
         candidate_name=candidate_name,
     )
+
+    # Build conversation messages for the interview
     messages = [{"role": "user", "content": context}]
     for entry in transcript:
         role = "assistant" if entry.get("role") == "interviewer" else "user"
@@ -403,19 +362,21 @@ def conduct_interview_turn(
     if force_wrap_up:
         messages.append({"role": "user", "content": prompts.WRAP_UP_INSTRUCTION})
 
-    response = _create_message(
-        max_tokens=1024, model=get_model(tier),
-        system=_INTERVIEWER_SYSTEM,
-        messages=messages,
-        output_config={"format": {"type": "json_schema", "schema": INTERVIEW_TURN_SCHEMA}},
-    )
-    if response.stop_reason == "refusal":
-        raise AIServiceError("The AI declined to process this request.")
-    text = next((b.text for b in response.content if b.type == "text"), "")
+    provider = get_qwen_provider()
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        raise AIServiceError("AI returned malformed output. Please retry.")
+        result = provider.conversation_request(
+            system=_INTERVIEWER_SYSTEM,
+            messages=messages,
+            response_format=INTERVIEW_TURN_SCHEMA,
+            tier=tier,
+            max_tokens=1024,
+        )
+        if isinstance(result, str):
+            # Shouldn't happen with response_format, but handle gracefully
+            return json.loads(result)
+        return result
+    except (QwenError, json.JSONDecodeError) as exc:
+        raise AIServiceError(f"Interview turn failed: {exc}")
 
 
 # ---------------------------------------------------------------------------
