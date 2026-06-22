@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    @apply text-gray-900 bg-gray-50 transition-colors duration-200;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+  }
+  a { @apply text-indigo-600 hover:text-indigo-700 transition-colors; }
+}
+
+@layer components {
+  .chat-bubble {
+    @apply max-w-[85%] px-4 py-3 rounded-2xl leading-relaxed whitespace-pre-wrap;
+  }
+  .chat-bubble-interviewer {
+    @apply chat-bubble bg-gray-100 dark:bg-gray-700 self-start rounded-bl-md;
+  }
+  .chat-bubble-candidate {
+    @apply chat-bubble bg-indigo-50 dark:bg-indigo-900/30 self-end rounded-br-md;
+  }
+  .link-box {
+    @apply flex items-center gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 my-2;
+  }
+  .link-box code {
+    @apply flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs;
+  }
+  .transcript-view {
+    @apply max-h-80 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-3 mt-2 bg-gray-50/50 dark:bg-gray-800/50 space-y-2;
+  }
+  .transcript-line .who {
+    @apply font-bold text-xs text-indigo-600 dark:text-indigo-400;
+  }
+  .question-item {
+    @apply border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-2 bg-white dark:bg-gray-800;
+  }
+  .question-item .follow-up {
+    @apply text-gray-500 dark:text-gray-400 text-xs mt-1;
+  }
+  .rating-row {
+    @apply flex items-center justify-between gap-3 py-2 border-b border-gray-100 dark:border-gray-700;
+  }
+  .rating-stars {
+    @apply flex gap-1;
+  }
+  .rating-stars button {
+    @apply w-8 h-8 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg cursor-pointer font-semibold text-gray-400 transition-all hover:border-indigo-300 dark:hover:border-indigo-500;
+  }
+  .rating-stars button.on {
+    @apply bg-indigo-600 border-indigo-600 text-white;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.300') transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  }
+
+  /* Page transition */
+  .page-enter {
+    @apply opacity-0 translate-y-2;
+  }
+  .page-enter-active {
+    @apply opacity-100 translate-y-0;
+    transition: opacity 300ms ease-out, transform 300ms ease-out;
+  }
+
+  /* Fade in */
+  .fade-in {
+    animation: fadeIn 200ms ease-out forwards;
+  }
+
+  /* Slide up */
+  .slide-up {
+    animation: slideUp 200ms ease-out forwards;
+  }
+
+  /* Slide down */
+  .slide-down {
+    animation: slideDown 200ms ease-out forwards;
+  }
+
+  /* Scale in (for modals) */
+  .scale-in {
+    animation: scaleIn 200ms ease-out forwards;
+  }
+
+  /* Scale out (for modals closing) */
+  .scale-out {
+    animation: scaleOut 150ms ease-in forwards;
+  }
+
+  /* Slide in from right */
+  .slide-in-right {
+    animation: slideInRight 200ms ease-out forwards;
+  }
+
+  /* Slide in from bottom */
+  .slide-in-bottom {
+    animation: slideInBottom 200ms ease-out forwards;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes scaleOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInBottom {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Hover micro-interactions */
+@layer components {
+  .hover-lift {
+    @apply transition-all duration-200;
+  }
+  .hover-lift:hover {
+    @apply -translate-y-0.5 shadow-lg;
+  }
+
+  .hover-glow {
+    @apply transition-all duration-200;
+  }
+  .hover-glow:hover {
+    @apply shadow-lg shadow-indigo-500/10;
+  }
+
+  .press-scale {
+    @apply transition-transform duration-100;
+  }
+  .press-scale:active {
+    @apply scale-[0.98];
+  }
+}
